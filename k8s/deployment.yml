@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: bms-container
-          image: chilukurir/bms:latest
+          image: chilukurir/bms:1.0.8
           ports:
             - containerPort: 80
           resources:
