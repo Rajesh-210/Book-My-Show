@@ -1,27 +1,47 @@
-# Use Node.js 18 (or your Jenkins-configured version)
-FROM node:18
+# ─────────────────────────────────────────────────────
+# Stage 1 — Build  (uses your existing node:18 base)
+# ─────────────────────────────────────────────────────
+FROM node:18 AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy dependency files
 COPY package.json package-lock.json ./
 
-# Force install a compatible PostCSS version to fix the issue
+# Fix stale lock file: force compatible PostCSS versions first
 RUN npm install postcss@8.4.21 postcss-safe-parser@6.0.0 --legacy-peer-deps
 
-# Install dependencies
-RUN npm install
+# Install all remaining dependencies
+RUN npm install --legacy-peer-deps
 
-# Copy the entire project
+# Copy source code
 COPY . .
 
-# Expose port 3000
-EXPOSE 3000
-
-# Set environment variable to prevent OpenSSL errors
+# Prevent OpenSSL errors with Node 18 + old CRA
 ENV NODE_OPTIONS=--openssl-legacy-provider
-ENV PORT=3000
 
-# Start the application
-CMD ["npm", "start"]
+# Build static production files into /app/build
+RUN npm run build
+
+# ─────────────────────────────────────────────────────
+# Stage 2 — Serve  (tiny nginx image, no Node needed)
+# ─────────────────────────────────────────────────────
+FROM nginx:stable-alpine
+
+# Remove default nginx placeholder page
+RUN rm -rf /usr/share/nginx/html/*
+
+# Copy built React files from Stage 1
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# nginx config — handles React Router (client-side routing)
+RUN echo 'server { \
+    listen 80; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { try_files $uri $uri/ /index.html; } \
+}' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
